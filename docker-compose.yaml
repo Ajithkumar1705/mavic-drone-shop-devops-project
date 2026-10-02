@@ -1,0 +1,195 @@
+services:
+
+  # ============================================================
+  # DATA TIER
+  # ============================================================
+
+  mongodb:
+    build:
+      context: ./mongo
+    image: mavicdroneshop/rs-mongodb:1.0
+    environment:
+      SEED_USER_NAME: ${SEED_USER_NAME:?Set SEED_USER_NAME in .env}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:?Set SEED_USER_PASSWORD in .env}
+      SEED_USER_EMAIL: ${SEED_USER_EMAIL:?Set SEED_USER_EMAIL in .env}
+      SEED_STAN_NAME: ${SEED_STAN_NAME:?Set SEED_STAN_NAME in .env}
+      SEED_STAN_PASSWORD: ${SEED_STAN_PASSWORD:?Set SEED_STAN_PASSWORD in .env}
+      SEED_STAN_EMAIL: ${SEED_STAN_EMAIL:?Set SEED_STAN_EMAIL in .env}
+      SEED_PARTNER_NAME: ${SEED_PARTNER_NAME:?Set SEED_PARTNER_NAME in .env}
+      SEED_PARTNER_PASSWORD: ${SEED_PARTNER_PASSWORD:?Set SEED_PARTNER_PASSWORD in .env}
+      SEED_PARTNER_EMAIL: ${SEED_PARTNER_EMAIL:?Set SEED_PARTNER_EMAIL in .env}
+    networks:
+      - mavic-drone-shop
+
+  mysql:
+    build:
+      context: ./mysql
+    image: mavicdroneshop/rs-mysql-db:1.0
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: cities
+      MYSQL_USER: shipping
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    volumes:
+      - mysql-data:/data
+    networks:
+      - mavic-drone-shop
+
+  redis:
+    image: redis:7.4.2-alpine
+    networks:
+      - mavic-drone-shop
+
+  rabbitmq:
+    image: rabbitmq:4.1.3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+    networks:
+      - mavic-drone-shop
+
+
+  # ============================================================
+  # BACKEND SERVICES
+  # ============================================================
+
+  cart:
+    build:
+      context: ./cart
+    image: mavicdroneshop/rs-cart:1.0
+    environment:
+      REDIS_HOST: redis
+      CATALOGUE_HOST: catalogue
+    depends_on:
+      - redis
+      - catalogue
+    networks:
+      - mavic-drone-shop
+
+  catalogue:
+    build:
+      context: ./catalogue
+    image: mavicdroneshop/rs-catalogue:1.0
+    environment:
+      MONGO_URL: mongodb://mongodb:27017/catalogue
+    depends_on:
+      - mongodb
+    networks:
+      - mavic-drone-shop
+
+  user:
+    build:
+      context: ./user
+    image: mavicdroneshop/rs-user:1.0
+    environment:
+      MONGO_URL: mongodb://mongodb:27017/users
+      REDIS_HOST: redis
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - mavic-drone-shop
+
+  payment:
+    build:
+      context: ./payment
+    image: mavicdroneshop/rs-payment:1.0
+    environment:
+      CART_HOST: cart
+      USER_HOST: user
+      AMQP_HOST: rabbitmq
+      AMQP_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER in .env}
+      AMQP_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+    depends_on:
+      - cart
+      - user
+      - rabbitmq
+    networks:
+      - mavic-drone-shop
+
+  shipping:
+    build:
+      context: ./shipping
+    image: mavicdroneshop/rs-shipping:1.0
+    environment:
+      DB_HOST: mysql
+      DB_USER: shipping
+      DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    depends_on:
+      - cart
+      - mysql
+    networks:
+      - mavic-drone-shop
+
+  ratings:
+    build:
+      context: ./ratings
+    image: mavicdroneshop/rs-ratings:1.0
+    environment:
+      CATALOGUE_URL: http://catalogue:8080
+      PDO_URL: "mysql:host=mysql;dbname=ratings;charset=utf8mb4"
+      PDO_USER: shipping
+      PDO_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    depends_on:
+      - catalogue
+      - mysql
+    networks:
+      - mavic-drone-shop
+
+  dispatch:
+    build:
+      context: ./dispatch
+    image: mavicdroneshop/rs-dispatch:1.0
+    environment:
+      AMQP_HOST: rabbitmq
+      AMQP_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER in .env}
+      AMQP_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in .env}
+    depends_on:
+      - rabbitmq
+    networks:
+      - mavic-drone-shop
+
+
+  # ============================================================
+  # FRONTEND
+  # ============================================================
+
+  web:
+    build:
+      context: ./web
+    image: mavicdroneshop/rs-web:1.0
+    ports:
+      - "8080:8080"
+    environment:
+      CATALOGUE_HOST: catalogue
+      USER_HOST: user
+      CART_HOST: cart
+      SHIPPING_HOST: shipping
+      PAYMENT_HOST: payment
+      RATINGS_HOST: ratings
+    depends_on:
+      - catalogue
+      - user
+      - cart
+      - shipping
+      - payment
+      - ratings
+    networks:
+      - mavic-drone-shop
+
+
+# ============================================================
+# NETWORK
+# ============================================================
+
+networks:
+  mavic-drone-shop:
+    driver: bridge
+
+
+# ============================================================
+# VOLUMES
+# ============================================================
+
+volumes:
+  mysql-data:

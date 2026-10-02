@@ -1,0 +1,6 @@
+# Copy to backend.hcl locally and replace the placeholders.
+# Do not commit backend.hcl; it is ignored by Git.
+
+bucket         = "replace-with-your-terraform-state-bucket"
+region         = "ap-south-1"
+dynamodb_table  = "replace-with-your-terraform-lock-table"

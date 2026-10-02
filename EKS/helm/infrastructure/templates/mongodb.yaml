@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  labels:
+    service: mongodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: mongodb
+  template:
+    metadata:
+      labels:
+        service: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+          imagePullPolicy: Always
+          env:
+            - name: SEED_USER_NAME
+              value: "{{ required \"secrets.seedUserName must be provided\" .Values.secrets.seedUserName }}"
+            - name: SEED_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mavic-drone-shop-runtime
+                  key: SEED_USER_PASSWORD
+            - name: SEED_USER_EMAIL
+              value: "{{ required \"secrets.seedUserEmail must be provided\" .Values.secrets.seedUserEmail }}"
+            - name: SEED_STAN_NAME
+              value: "{{ required \"secrets.seedStanName must be provided\" .Values.secrets.seedStanName }}"
+            - name: SEED_STAN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mavic-drone-shop-runtime
+                  key: SEED_STAN_PASSWORD
+            - name: SEED_STAN_EMAIL
+              value: "{{ required \"secrets.seedStanEmail must be provided\" .Values.secrets.seedStanEmail }}"
+            - name: SEED_PARTNER_NAME
+              value: "{{ required \"secrets.seedPartnerName must be provided\" .Values.secrets.seedPartnerName }}"
+            - name: SEED_PARTNER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mavic-drone-shop-runtime
+                  key: SEED_PARTNER_PASSWORD
+            - name: SEED_PARTNER_EMAIL
+              value: "{{ required \"secrets.seedPartnerEmail must be provided\" .Values.secrets.seedPartnerEmail }}"
+          ports:
+            - containerPort: 27017
+          resources:
+            {{- toYaml .Values.mongodb.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  labels:
+    service: mongodb
+spec:
+  ports:
+    - name: mongo
+      port: 27017
+      targetPort: 27017
+  selector:
+    service: mongodb

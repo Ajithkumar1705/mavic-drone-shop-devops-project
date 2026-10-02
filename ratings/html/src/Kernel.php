@@ -1,0 +1,125 @@
+<?php
+
+declare(strict_types=1);
+
+namespace MavicDroneShop\Ratings;
+
+use MavicDroneShop\Ratings\Controller\HealthController;
+use MavicDroneShop\Ratings\Controller\RatingsApiController;
+use MavicDroneShop\Ratings\Service\CatalogueService;
+use MavicDroneShop\Ratings\Service\HealthCheckService;
+use MavicDroneShop\Ratings\Service\RatingsService;
+use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
+use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
+use Symfony\Bundle\MonologBundle\MonologBundle;
+use Symfony\Component\Config\Loader\LoaderInterface;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Reference;
+use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\HttpKernel\Event\ResponseEvent;
+use Symfony\Component\HttpKernel\Kernel as BaseKernel;
+use Symfony\Component\HttpKernel\KernelEvents;
+use Symfony\Component\Routing\RouteCollectionBuilder;
+
+class Kernel extends BaseKernel implements EventSubscriberInterface
+{
+    use MicroKernelTrait;
+
+    public function registerBundles()
+    {
+        return [
+            new FrameworkBundle(),
+            new MonologBundle(),
+        ];
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    public static function getSubscribedEvents()
+    {
+        return [
+            KernelEvents::RESPONSE => 'corsResponseFilter',
+        ];
+    }
+
+    public function corsResponseFilter(ResponseEvent $event)
+    {
+        $response = $event->getResponse();
+
+        $response->headers->add([
+            'Access-Control-Allow-Origin' => '*',
+            'Access-Control-Allow-Methods' => '*',
+        ]);
+    }
+
+    protected function configureContainer(ContainerBuilder $c, LoaderInterface $loader): void
+    {
+        $c->loadFromExtension('framework', [
+            'secret' => getenv('APP_SECRET') ?: throw new \RuntimeException('APP_SECRET must be provided by the runtime secret store'),
+        ]);
+
+        $c->loadFromExtension('monolog', [
+            'handlers' => [
+                'stdout' => [
+                    'type' => 'stream',
+                    'level' => 'info',
+                    'path' => 'php://stdout',
+                    'channels' => ['!request'],
+                ],
+            ],
+        ]);
+
+        $c->setParameter('catalogueUrl', getenv('CATALOGUE_URL') ?: 'http://catalogue:8080');
+        $c->setParameter('pdo_dsn', getenv('PDO_URL') ?: 'mysql:host=mysql;dbname=ratings;charset=utf8mb4');
+        $pdoUser = getenv('PDO_USER');
+        $pdoPassword = getenv('PDO_PASSWORD');
+        if (!$pdoUser || !$pdoPassword) {
+            throw new \RuntimeException('PDO_USER and PDO_PASSWORD must be provided by the runtime secret store');
+        }
+        $c->setParameter('pdo_user', $pdoUser);
+        $c->setParameter('pdo_password', $pdoPassword);
+        $c->setParameter('logger.name', 'RatingsAPI');
+
+        $c->register(Database::class)
+            ->addArgument($c->getParameter('pdo_dsn'))
+            ->addArgument($c->getParameter('pdo_user'))
+            ->addArgument($c->getParameter('pdo_password'))
+            ->addMethodCall('setLogger', [new Reference('logger')])
+            ->setAutowired(true);
+
+        $c->register(CatalogueService::class)
+            ->addArgument($c->getParameter('catalogueUrl'))
+            ->addMethodCall('setLogger', [new Reference('logger')])
+            ->setAutowired(true);
+
+        $c->register(HealthCheckService::class)
+            ->addArgument(new Reference('database.connection'))
+            ->addMethodCall('setLogger', [new Reference('logger')])
+            ->setAutowired(true);
+
+        $c->register('database.connection', \PDO::class)
+            ->setFactory([new Reference(Database::class), 'getConnection']);
+
+        $c->setAlias(\PDO::class, 'database.connection');
+
+        $c->register(RatingsService::class)
+            ->addMethodCall('setLogger', [new Reference('logger')])
+            ->setAutowired(true);
+
+        $c->register(HealthController::class)
+            ->addMethodCall('setLogger', [new Reference('logger')])
+            ->addTag('controller.service_arguments')
+            ->setAutowired(true);
+
+        $c->register(RatingsApiController::class)
+            ->addMethodCall('setLogger', [new Reference('logger')])
+            ->addTag('controller.service_arguments')
+            ->setAutowired(true);
+    }
+
+    protected function configureRoutes(RouteCollectionBuilder $routes)
+    {
+        $routes->import(__DIR__.'/Controller/', '/', 'annotation');
+    }
+}

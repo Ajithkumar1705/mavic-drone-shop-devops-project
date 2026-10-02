@@ -1,0 +1,28 @@
+service:
+  name: payment
+  port: 8080
+  targetPort: 8080
+
+serviceMonitor:
+  enabled: true
+  port: http
+  path: /metrics
+  interval: 30s
+
+podLabels:
+  stage: prod
+
+env:
+  - name: AMQP_HOST
+    value: "rabbitmq"
+  - name: AMQP_USER
+    valueFrom:
+      secretKeyRef:
+        name: mavic-drone-shop-runtime
+        key: RABBITMQ_USER
+  - name: AMQP_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: mavic-drone-shop-runtime
+        key: RABBITMQ_PASSWORD
+

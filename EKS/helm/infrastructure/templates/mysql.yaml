@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  labels:
+    service: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      service: mysql
+  template:
+    metadata:
+      labels:
+        service: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: "{{ .Values.mysql.image.repository }}:{{ .Values.mysql.image.tag }}"
+          imagePullPolicy: Always
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          # Without these the stock mysql image refuses to start
+          # ("password option is not specified"). Same values as docker-compose.yaml.
+          # Demo-grade credentials - move to a Kubernetes Secret for anything real.
+          env:
+            - name: MYSQL_ALLOW_EMPTY_PASSWORD
+              value: "yes"
+            - name: MYSQL_DATABASE
+              value: cities
+            - name: MYSQL_USER
+              value: shipping
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mavic-drone-shop-runtime
+                  key: MYSQL_PASSWORD
+          ports:
+            - containerPort: 3306
+          # The rs-mysql image's last init script (mysql/scripts/99-finished.sh)
+          # touches /tmp/finished once the seed data import is done, so the pod
+          # only goes Ready when the data is really loaded. NOTE: this requires
+          # the custom rs-mysql image - the stock mysql image never creates it.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "test -f /tmp/finished"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 60
+          resources:
+            {{- toYaml .Values.mysql.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  labels:
+    service: mysql
+spec:
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+  selector:
+    service: mysql

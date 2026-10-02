@@ -1,0 +1,5 @@
+uwsgi
+Flask
+requests
+pika
+prometheus_client
